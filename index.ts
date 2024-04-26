@@ -6,8 +6,11 @@ export * from "./decorators/Tag";
 export * from "./decorators/Controllers";
 export * from "./decorators/Middlewares";
 
-export * from "./decorators/Get";
-export * from "./decorators/Post";
+
+export * from "./decorators/requestMethodDecorators";
+
+// export * from "./decorators/Get";
+// export * from "./decorators/Post";
 
 export * from "./decorators/Param";
 export * from "./decorators/Body";

@@ -142,8 +142,8 @@ export abstract class App {
 
     const schemas = validationMetadatasToSchemas();
 
-    console.log(schemas);
-    console.log(this.multerOptions);
+    // console.log(schemas);
+    // console.log(this.multerOptions);
 
     Object.keys(this.multerOptions).forEach((key) => {
       schemas[key].properties![this.multerOptions[key].path] = {

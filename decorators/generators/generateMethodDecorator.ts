@@ -1,6 +1,10 @@
-import { RouteDefinition } from "../types/RouteDefinition";
+import { RouteDefinition } from "../../types/RouteDefinition";
 
-export const Get = (path: string, options?: any): MethodDecorator => {
+export const generateRequestMethodDecorathor = (
+  type: RouteDefinition["requestMethod"],
+  path: string,
+  options?: any
+): MethodDecorator => {
   return (
     target: any,
     key: string | symbol,
@@ -20,12 +24,22 @@ export const Get = (path: string, options?: any): MethodDecorator => {
       middlewares: [],
     };
 
-    route.requestMethod = "get";
+    route.requestMethod = type;
     route.path = path;
     route.openApi = {
-      operationId: target.constructor.name + "__" + key.toString() + "__get",
+      operationId:
+        target.constructor.name + "__" + key.toString() + "__" + type,
       description: options?.description,
       tags: [target.constructor.name],
+      requestBody: ["post", "put", "patch"].includes(type as string) && {
+        description: options?.bodyDescription || "Request body",
+        required: options?.bodyRequired || false,
+        content: {
+          "application/json": {
+            schema: { type: "object" },
+          },
+        },
+      },
       produces: ["application/json", "application/xml"],
       responses: {
         200: {

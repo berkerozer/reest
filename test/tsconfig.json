@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "outDir": "./dist",
+    "outDir": ".build",
     "target": "ESNext",
     "module": "commonjs",
     "sourceMap": true,
@@ -16,5 +16,5 @@
     "declaration": true
   },
   "include": ["./**/*.ts"],
-  "exclude": ["node_modules", "swagger.json", "test"]
+  "exclude": ["node_modules"]
 }

@@ -1,0 +1,6 @@
+{
+  "env": {
+    "NODE_ENV": "local",
+    "PORT": 3000
+  }
+}
