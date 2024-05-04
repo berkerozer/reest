@@ -1,6 +1,6 @@
 {
   "name": "reest",
-  "version": "0.1.1-beta",
+  "version": "0.1.2-beta",
   "description": "A library inspired by NestJS's elegance, specifically designed for efficient serverless API development on AWS Lambda. It streamlines the creation of microservices with automated Swagger documentation and enhanced decorator-based middleware support, making it a go-to choice for developers seeking a robust yet lightweight solution.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
