@@ -1,230 +1,130 @@
-import { validationMetadatasToSchemas } from "class-validator-jsonschema";
 import "reflect-metadata";
-import express, { Request } from "express";
-import { RouteDefinition } from "./RouteDefinition";
-import { Log } from "../utils/Log";
-import SwaggerUi from "swagger-ui-express";
-import { pathFormatter } from "../utils/PathFormatter";
-import * as js2xmlparser from "js2xmlparser";
+import express from "express";
+
+import { validationMetadatasToSchemas } from "class-validator-jsonschema";
+import { defaultMetadataStorage } from "class-transformer/cjs/storage.js";
+
+import { Log } from "../utils";
+import { Interceptor, OpenapiOptions } from ".";
+import { initializeOpenapi } from "../partials";
 
 export abstract class App {
+  //Define Controllers and Global Middlewares
   private Controllers: any[] = [];
   private Middlewares: any[] = [];
-  private swaggerOptions: any = {};
-  private multerOptions: any = {};
 
-  constructor(private readonly app = express(), private readonly port = 3000) {
+  //Define Interceptors
+  private Interceptors: { new (): Interceptor }[];
+
+  //Define App Options
+  private openapiOptions: OpenapiOptions = {};
+  //private multerOptions: any = {};
+  private serverless = false;
+  private port: number;
+
+  //Option getters and setters
+  private setPort(port?: number) {
+    this.port = port || 3000;
+  }
+  public getPort() {
+    return this.port;
+  }
+  public isServerless() {
+    return this.serverless;
+  }
+  private setOpenapiOptions(options?: any) {
+    this.openapiOptions = options;
+  }
+  private joinDefinitions(definitions: any) {
+    this.openapiOptions.definitions = {
+      ...this.openapiOptions.definitions,
+      ...definitions,
+    };
+  }
+  private joinPaths(paths: any) {
+    this.openapiOptions.paths = {
+      ...this.openapiOptions.paths,
+      ...paths,
+    };
+  }
+  public getOpenapiOptions() {
+    return this.openapiOptions;
+  }
+  //Get the express application instance
+  getApplication() {
+    return this.app;
+  }
+
+  //Define Schemas for Swagger
+  private schemas = validationMetadatasToSchemas({
+    classTransformerMetadataStorage: defaultMetadataStorage,
+  });
+
+  constructor(private readonly app = express()) {
+    //Set options before the construction (App Level Decorators)
+    //Set the port from the metadata
+    this.setPort(Reflect.getMetadata("port", this.constructor));
+    this.setOpenapiOptions(
+      Reflect.getMetadata("openapi-options", this.constructor)
+    );
+    //Set the definitions for the openapi settings
+    this.joinDefinitions(this.schemas);
+    this.joinDefinitions({
+      File: {
+        type: "string",
+        format: "binary",
+      },
+    });
+
+    //Collect Global Interceptors
+    this.Interceptors = Reflect.getMetadata(
+      "GlobalInterceptors",
+      this.constructor
+    );
+
+    //Initialize the global interceptors
+    this.Interceptors?.sort((a, b) => -1).forEach((interceptor) => {
+      this.app.use((req, _, next) => {
+        const req_interceptor = new interceptor();
+        req_interceptor.intercept(req);
+        req.meta = {
+          ...req.meta,
+          [interceptor.name]: req_interceptor.data,
+        };
+        next();
+      });
+    });
+    //Initialize Global Parser Middlewares
     this.app.use(express.json());
     this.app.use(express.urlencoded({ extended: true }));
 
+    //Collect the controllers and global middlewares
     this.Controllers = Reflect.getMetadata("Controllers", this.constructor);
-    this.Middlewares = Reflect.getMetadata(
-      "Middlewares",
-      this.constructor
-    )?.map((middleware: any) => new middleware().use);
-    this.swaggerOptions =
-      Reflect.getMetadata("swagger-options", this.constructor) || {};
+    this.Middlewares = Reflect.getMetadata("Middlewares", this.constructor);
 
-    this.multerOptions = {};
-
+    //Initialize controllers
     this.Controllers?.forEach((controller) => {
-      const prefix = Reflect.getMetadata("prefix", controller);
-      const routes = Reflect.getMetadata("routes", controller);
-
-      const instance = new controller();
-
-      routes.forEach((route: RouteDefinition) => {
-        const paramsMetadata =
-          Reflect.getOwnMetadata(
-            `__routeParameters__${route.methodName as string}`,
-            controller.prototype,
-            route.methodName
-          ) || [];
-
-        const bodyMetadata =
-          Reflect.getOwnMetadata(
-            `__bodyParameter__${route.methodName as string}`,
-            controller.prototype,
-            route.methodName
-          ) || [];
-
-        const queryMetedata =
-          Reflect.getOwnMetadata(
-            `__queryParameters__${route.methodName as string}`,
-            controller.prototype,
-            route.methodName
-          ) || [];
-
-        if (route.requestMethod) {
-          this.swaggerOptions.paths[pathFormatter(prefix + route.path)] = {
-            ...this.swaggerOptions.paths[pathFormatter(prefix + route.path)],
-            [route.requestMethod]: {
-              ...route.openApi,
-
-              parameters: paramsMetadata
-                .concat(queryMetedata)
-                .map(
-                  (param: {
-                    paramName: string;
-                    parameterIndex: number;
-                    options: any;
-                    type: string;
-                  }) => ({
-                    name: param.paramName,
-                    in: param.type === "param" ? "path" : "query",
-                    required: param.options?.required === false ? false : true,
-                    description: param.options?.description,
-                    schema: param.options?.schema || {
-                      type: "string",
-                    },
-                  })
-                ),
-            },
-          };
-
-          bodyMetadata.forEach((param: any) => {
-            new param.options.type();
-
-            if (route.multer) {
-              this.multerOptions[param.options.type.name] = route.multer;
-            }
-
-            this.swaggerOptions.paths[pathFormatter(prefix + route.path)][
-              route.requestMethod!
-            ].requestBody = {
-              content: {
-                [route.multer ? "multipart/form-data" : "application/json"]: {
-                  schema: {
-                    $ref: `#/components/schemas/${param.options.type.name}`,
-                  },
-                },
-              },
-            };
-          });
-
-          this.app[route.requestMethod](
-            `${prefix}${route.path}`,
-            this.Middlewares
-              ? route.middlewares
-                ? [...this.Middlewares, ...route.middlewares]
-                : this.Middlewares
-              : route.middlewares || [],
-            async (req: express.Request, res: express.Response) => {
-              try {
-                const args = this.extractParameters(
-                  req,
-                  paramsMetadata.concat(queryMetedata).concat(bodyMetadata),
-                  {
-                    multer: route.multer && {
-                      path: route.multer.path,
-                      single: route.multer.single,
-                    },
-                  }
-                );
-
-                const result = await instance[route.methodName](...args);
-
-                if (req.headers.accept === "application/xml") {
-                  res.setHeader("Content-Type", "application/xml");
-                  const xml = js2xmlparser.parse("data", result);
-                  return res.send(xml);
-                }
-
-                res.json(result);
-              } catch (error: any) {
-                res.status(500).json({ error: error.message });
-              }
-            }
-          );
-        }
-      });
+      controller = new controller(this.constructor);
+      this.joinPaths(controller.openapiPaths);
+      app.use(controller.prefix, controller.router);
     });
 
-    const schemas = validationMetadatasToSchemas();
-
-    // console.log(schemas);
-    // console.log(this.multerOptions);
-
-    Object.keys(this.multerOptions).forEach((key) => {
-      schemas[key].properties![this.multerOptions[key].path] = {
-        type: "string",
-        format: "binary",
-      };
+    //Initialize Middlewares
+    this.Middlewares?.forEach((middleware) => {
+      //this.app.use(middleware);
     });
 
-    this.swaggerOptions.components = {
-      schemas: {
-        ...schemas,
-      },
-    };
+    //Initialize Openapi Documentation
+    this.getOpenapiOptions().openapi &&
+      initializeOpenapi(this.app, this.getOpenapiOptions());
 
-    if (Reflect.hasMetadata("swagger", this.constructor)) {
-      (async () => {
-        this.app.use(
-          Reflect.getMetadata("swagger", this.constructor),
-          SwaggerUi.serveWithOptions({
-            redirect: false,
-          })
-        );
-        this.app.get(
-          Reflect.getMetadata("swagger", this.constructor),
-          SwaggerUi.setup(this.swaggerOptions)
-        );
-        this.app.get(
-          Reflect.getMetadata("swagger", this.constructor) + "/swagger.json",
-          (req: express.Request, res: express.Response) => {
-            res.json(this.swaggerOptions);
-          }
-        );
-      })();
-    }
-
-    process.env.NODE_ENV === "local" &&
-      this.app.listen(this.port, () => {
-        Log(`Server is running on PORT:${this.port || 3000}`);
+    //Start the server if not in serverless environment
+    !(this.isServerless() && process.env.NODE_ENV !== "local") &&
+      this.app.listen(this.getPort(), () => {
+        Log(`Server is running on PORT:${this.port}`);
         console.log(
           `-------------------------------------------------------------`
         );
       });
-  }
-
-  extractParameters(
-    req: Request,
-    paramsMetadata: Array<{
-      paramName: string;
-      parameterIndex: number;
-      type: string;
-    }>,
-    options: any
-  ) {
-    const args = [];
-
-    for (const { type, paramName, parameterIndex } of paramsMetadata) {
-      switch (type) {
-        case "param":
-          args[parameterIndex] =
-            paramName?.length > 0 ? req.params[paramName] : req.params;
-          break;
-        case "body":
-          args[parameterIndex] = options.multer
-            ? {
-                ...req.body,
-                [options.multer.path]: options.multer.single
-                  ? req.file
-                  : req.files,
-              }
-            : req.body;
-          break;
-        case "query":
-          args[parameterIndex] =
-            paramName?.length > 0 ? req.query[paramName] : req.query;
-          break;
-      }
-    }
-    return args;
-  }
-
-  getApplication() {
-    return this.app;
   }
 }

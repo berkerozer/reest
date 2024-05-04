@@ -1,4 +1,4 @@
-import { Log } from "../utils/Log";
+import { Log } from "../../utils/Log";
 
 export function Middlewares(...middlewares: any[]): ClassDecorator {
   return (target: any) => {

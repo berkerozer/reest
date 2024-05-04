@@ -1,7 +1,11 @@
-import { RouteDefinition } from "../types/RouteDefinition";
+import { MulterOptions } from "../../types/MulterOptions";
+import { RouteDefinition } from "../../types/RouteDefinition";
 import multer from "multer";
 
-export const Multer = (path: string, options?: any): MethodDecorator => {
+export const Multer = (
+  path: string,
+  options?: MulterOptions
+): MethodDecorator => {
   return (
     target: any,
     key: string | symbol,
@@ -9,7 +13,10 @@ export const Multer = (path: string, options?: any): MethodDecorator => {
   ) => {
     const upload = multer({ storage: multer.memoryStorage() });
 
-    const type = "single";
+    const type =
+      typeof options?.single === "undefined" || options?.single
+        ? "single"
+        : "array";
 
     if (!Reflect.hasMetadata("routes", target.constructor)) {
       Reflect.defineMetadata("routes", [], target.constructor);
@@ -21,7 +28,7 @@ export const Multer = (path: string, options?: any): MethodDecorator => {
         {
           path,
           options,
-          single: type === "single",
+          type: type,
         },
         target.constructor
       );
@@ -46,7 +53,7 @@ export const Multer = (path: string, options?: any): MethodDecorator => {
     route.multer = {
       path,
       options,
-      single: type === "single",
+      type: type,
     };
 
     Reflect.defineMetadata("routes", [...routes, route], target.constructor);
